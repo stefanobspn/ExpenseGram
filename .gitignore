@@ -10,3 +10,11 @@ wheels/
 
 # Virtual environments
 .venv
+
+
+.env
+
+# Databases and runtime data
+expenses.db
+*.db
+data/

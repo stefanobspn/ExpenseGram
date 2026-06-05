@@ -1,0 +1,13 @@
+services:
+  expensegram:
+    build: .
+    container_name: expensegram_bot
+    restart: unless-stopped
+    volumes:
+      # Persists SQLite database to a local directory 'data'
+      - ./data:/data
+    env_file:
+      - .env
+    environment:
+      # Ensure database points to the volume mount
+      - DB_PATH=/data/expenses.db
