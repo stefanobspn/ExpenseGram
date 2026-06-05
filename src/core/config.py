@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env
 load_dotenv()
 
+
 class Config:
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     TELEGRAM_OWNER_ID: str = os.getenv("TELEGRAM_OWNER_ID", "")
@@ -18,7 +19,7 @@ class Config:
             raise ValueError(
                 "TELEGRAM_BOT_TOKEN is missing! Please configure it in your environment or .env file."
             )
-        
+
         # Ensure the directory for DB_PATH exists
         db_dir = Path(cls.DB_PATH).parent
         if db_dir != Path(".") and not db_dir.exists():

@@ -3,12 +3,16 @@ import sqlite3
 from datetime import datetime
 from typing import List, Tuple, Dict, Any, Optional
 
+
 class CategoryNotFoundError(Exception):
     """Raised when trying to log a transaction with a non-existent category."""
+
     pass
+
 
 class AccountNotFoundError(Exception):
     """Raised when trying to log a transaction with a non-existent account."""
+
     pass
 
 
@@ -33,7 +37,7 @@ class ExpenseDB:
                     name TEXT UNIQUE NOT NULL
                 );
             """)
-            
+
             # Create accounts table (starts empty)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS accounts (
@@ -41,7 +45,7 @@ class ExpenseDB:
                     name TEXT UNIQUE NOT NULL
                 );
             """)
-            
+
             # Create transactions table including account column
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS transactions (
@@ -54,19 +58,21 @@ class ExpenseDB:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            
+
             # Migration check: if 'account' column is missing in transactions, alter schema
             cursor = conn.execute("PRAGMA table_info(transactions)")
             columns = [row["name"] for row in cursor.fetchall()]
             if "account" not in columns:
-                conn.execute("ALTER TABLE transactions ADD COLUMN account TEXT NOT NULL DEFAULT 'cash'")
-            
+                conn.execute(
+                    "ALTER TABLE transactions ADD COLUMN account TEXT NOT NULL DEFAULT 'cash'"
+                )
+
             # Re-sync accounts table: populate accounts table with any distinct accounts already in transactions
             conn.execute("""
                 INSERT OR IGNORE INTO accounts (name)
                 SELECT DISTINCT account FROM transactions;
             """)
-            
+
             conn.commit()
 
     # Category operations
@@ -94,13 +100,15 @@ class ExpenseDB:
         name = name.strip().lower()
         with self._get_conn() as conn:
             cursor = conn.execute(
-                "SELECT COUNT(*) as count FROM transactions WHERE category = ?", 
-                (name,)
+                "SELECT COUNT(*) as count FROM transactions WHERE category = ?", (name,)
             )
             count = cursor.fetchone()["count"]
             if count > 0:
-                return False, f"Category '{name}' is in use by {count} transaction(s) and cannot be deleted."
-            
+                return (
+                    False,
+                    f"Category '{name}' is in use by {count} transaction(s) and cannot be deleted.",
+                )
+
             cursor = conn.execute("DELETE FROM categories WHERE name = ?", (name,))
             conn.commit()
             if cursor.rowcount > 0:
@@ -134,13 +142,15 @@ class ExpenseDB:
         with self._get_conn() as conn:
             # Check if referenced in transactions
             cursor = conn.execute(
-                "SELECT COUNT(*) as count FROM transactions WHERE account = ?", 
-                (name,)
+                "SELECT COUNT(*) as count FROM transactions WHERE account = ?", (name,)
             )
             count = cursor.fetchone()["count"]
             if count > 0:
-                return False, f"Account '{name}' is in use by {count} transaction(s) and cannot be deleted."
-            
+                return (
+                    False,
+                    f"Account '{name}' is in use by {count} transaction(s) and cannot be deleted.",
+                )
+
             cursor = conn.execute("DELETE FROM accounts WHERE name = ?", (name,))
             conn.commit()
             if cursor.rowcount > 0:
@@ -148,14 +158,47 @@ class ExpenseDB:
             else:
                 return False, f"Account '{name}' not found."
 
+    def get_account_balances(self) -> Dict[str, float]:
+        """Calculate the current balance for all accounts."""
+        balances = {}
+        with self._get_conn() as conn:
+            # First, initialize all existing accounts with 0.0 balance
+            cursor = conn.execute("SELECT name FROM accounts")
+            for row in cursor.fetchall():
+                balances[row["name"]] = 0.0
+
+            # Calculate sum of income / transfer_in
+            cursor = conn.execute("""
+                SELECT account, SUM(amount) as total
+                FROM transactions
+                WHERE type IN ('income', 'transfer_in')
+                GROUP BY account
+            """)
+            for row in cursor.fetchall():
+                acc = row["account"]
+                balances[acc] = balances.get(acc, 0.0) + row["total"]
+
+            # Subtract sum of expense / transfer_out
+            cursor = conn.execute("""
+                SELECT account, SUM(amount) as total
+                FROM transactions
+                WHERE type IN ('expense', 'transfer_out')
+                GROUP BY account
+            """)
+            for row in cursor.fetchall():
+                acc = row["account"]
+                balances[acc] = balances.get(acc, 0.0) - row["total"]
+
+        return balances
+
     # Transaction operations
     def add_transaction(
-        self, 
-        amount: float, 
-        tx_type: str, 
+        self,
+        amount: float,
+        tx_type: str,
         account: str,
-        category: str, 
-        description: Optional[str] = None
+        category: str,
+        description: Optional[str] = None,
     ) -> int:
         """Add a transaction. If the category or account does not exist, raises appropriate exceptions."""
         category = category.strip().lower()
@@ -167,45 +210,179 @@ class ExpenseDB:
             # Validate account existence
             cursor = conn.execute("SELECT 1 FROM accounts WHERE name = ?", (account,))
             if not cursor.fetchone():
-                raise AccountNotFoundError(f"Account '{account}' does not exist. You must create it first.")
+                raise AccountNotFoundError(
+                    f"Account '{account}' does not exist. You must create it first."
+                )
 
             # Validate category existence
-            cursor = conn.execute("SELECT 1 FROM categories WHERE name = ?", (category,))
+            cursor = conn.execute(
+                "SELECT 1 FROM categories WHERE name = ?", (category,)
+            )
             if not cursor.fetchone():
-                raise CategoryNotFoundError(f"Category '{category}' does not exist. You must create it first.")
+                raise CategoryNotFoundError(
+                    f"Category '{category}' does not exist. You must create it first."
+                )
 
             cursor = conn.execute(
                 """
                 INSERT INTO transactions (amount, type, account, category, description, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (amount, tx_type, account, category, description, datetime.now())
+                (amount, tx_type, account, category, description, datetime.now()),
             )
             conn.commit()
             return cursor.lastrowid
 
-    def delete_transaction(self, tx_id: int) -> bool:
-        """Delete a transaction by ID. Returns True if a row was deleted."""
-        with self._get_conn() as conn:
-            cursor = conn.execute("DELETE FROM transactions WHERE id = ?", (tx_id,))
-            conn.commit()
-            return cursor.rowcount > 0
+    def add_transfer(
+        self,
+        from_account: str,
+        to_account: str,
+        amount: float,
+        description: Optional[str] = None,
+    ) -> Tuple[int, int]:
+        """
+        Record a transfer from one account to another.
+        Creates two linked transactions under a single DB transaction.
+        Returns the IDs of the two created transactions (from_id, to_id).
+        """
+        from_account = from_account.strip().lower()
+        to_account = to_account.strip().lower()
+        description = description.strip() if description else None
 
-    def delete_last_transaction(self) -> Optional[Dict[str, Any]]:
-        """Deletes the latest transaction. Returns its details if successful, or None."""
+        if from_account == to_account:
+            raise ValueError("Source and destination accounts must be different.")
+
+        if amount <= 0:
+            raise ValueError("Transfer amount must be greater than zero.")
+
+        with self._get_conn() as conn:
+            # Validate source account existence
+            cursor = conn.execute(
+                "SELECT 1 FROM accounts WHERE name = ?", (from_account,)
+            )
+            if not cursor.fetchone():
+                raise AccountNotFoundError(
+                    f"Source account '{from_account}' does not exist."
+                )
+
+            # Validate destination account existence
+            cursor = conn.execute(
+                "SELECT 1 FROM accounts WHERE name = ?", (to_account,)
+            )
+            if not cursor.fetchone():
+                raise AccountNotFoundError(
+                    f"Destination account '{to_account}' does not exist."
+                )
+
+            # Automatically ensure the 'transfer' category exists
+            conn.execute("INSERT OR IGNORE INTO categories (name) VALUES ('transfer')")
+
+            now = datetime.now()
+
+            # 1. Outflow from source account
+            desc_from = f"Transfer to {to_account}"
+            if description:
+                desc_from += f": {description}"
+            cursor = conn.execute(
+                """
+                INSERT INTO transactions (amount, type, account, category, description, created_at)
+                VALUES (?, 'transfer_out', ?, 'transfer', ?, ?)
+                """,
+                (amount, from_account, desc_from, now),
+            )
+            from_id = cursor.lastrowid
+
+            # 2. Inflow to destination account
+            desc_to = f"Transfer from {from_account}"
+            if description:
+                desc_to += f": {description}"
+            cursor = conn.execute(
+                """
+                INSERT INTO transactions (amount, type, account, category, description, created_at)
+                VALUES (?, 'transfer_in', ?, 'transfer', ?, ?)
+                """,
+                (amount, to_account, desc_to, now),
+            )
+            to_id = cursor.lastrowid
+
+            conn.commit()
+            return from_id, to_id
+
+    def delete_transaction(self, tx_id: int) -> bool:
+        """Delete a transaction by ID. If it is a transfer, also deletes its counterpart."""
+        with self._get_conn() as conn:
+            # Check if this transaction is a transfer
+            cursor = conn.execute(
+                "SELECT amount, type, created_at FROM transactions WHERE id = ?",
+                (tx_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False
+
+            tx_type = row["type"]
+            amount = row["amount"]
+            created_at = row["created_at"]
+
+            # Delete target transaction
+            conn.execute("DELETE FROM transactions WHERE id = ?", (tx_id,))
+
+            # If it's a transfer, also delete counterpart
+            if tx_type in ("transfer_in", "transfer_out"):
+                other_type = (
+                    "transfer_out" if tx_type == "transfer_in" else "transfer_in"
+                )
+                conn.execute(
+                    """
+                    DELETE FROM transactions 
+                    WHERE type = ? AND amount = ? AND created_at = ? AND id != ?
+                    """,
+                    (other_type, amount, created_at, tx_id),
+                )
+            conn.commit()
+            return True
+
+    def delete_last_transaction(self) -> Optional[List[Dict[str, Any]]]:
+        """Deletes the latest transaction (or transaction pair if it was a transfer). Returns details."""
         with self._get_conn() as conn:
             # Find the most recent transaction
             cursor = conn.execute(
-                "SELECT id, amount, type, account, category, description FROM transactions ORDER BY created_at DESC, id DESC LIMIT 1"
+                "SELECT id, amount, type, account, category, description, created_at FROM transactions ORDER BY created_at DESC, id DESC LIMIT 1"
             )
             row = cursor.fetchone()
             if not row:
                 return None
-            
-            tx = dict(row)
-            conn.execute("DELETE FROM transactions WHERE id = ?", (tx["id"],))
+
+            tx1 = dict(row)
+            deleted_txs = [tx1]
+
+            # If it's a transfer, delete counterpart as well
+            if tx1["type"] in ("transfer_in", "transfer_out"):
+                other_type = (
+                    "transfer_out" if tx1["type"] == "transfer_in" else "transfer_in"
+                )
+                cursor = conn.execute(
+                    """
+                    SELECT id, amount, type, account, category, description, created_at 
+                    FROM transactions 
+                    WHERE type = ? AND amount = ? AND created_at = ? AND id != ?
+                    """,
+                    (other_type, tx1["amount"], tx1["created_at"], tx1["id"]),
+                )
+                row2 = cursor.fetchone()
+                if row2:
+                    tx2 = dict(row2)
+                    deleted_txs.append(tx2)
+
+            # Delete all collected transaction IDs
+            ids_to_delete = [tx["id"] for tx in deleted_txs]
+            placeholders = ",".join("?" for _ in ids_to_delete)
+            conn.execute(
+                f"DELETE FROM transactions WHERE id IN ({placeholders})", ids_to_delete
+            )
             conn.commit()
-            return tx
+
+            return deleted_txs
 
     def get_history(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get recent transactions."""
@@ -217,7 +394,7 @@ class ExpenseDB:
                 ORDER BY created_at DESC, id DESC
                 LIMIT ?
                 """,
-                (limit,)
+                (limit,),
             )
             return [dict(row) for row in cursor.fetchall()]
 
@@ -233,7 +410,7 @@ class ExpenseDB:
                 GROUP BY category, type
                 ORDER BY type DESC, total DESC
                 """,
-                (date_pattern,)
+                (date_pattern,),
             )
             return [dict(row) for row in cursor.fetchall()]
 

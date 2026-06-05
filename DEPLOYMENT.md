@@ -88,3 +88,48 @@ All transactions are stored in a local SQLite file mapped to `./data/expenses.db
 cp ./data/expenses.db ./data/expenses_backup_$(date +%F).db
 ```
 You can also use the `/export` command directly inside Telegram to download a CSV backup.
+
+---
+
+## 6. Continuous Integration & Deployment (CI/CD)
+
+A GitHub Actions workflow is set up in [.github/workflows/ci-cd.yml](file://.github/workflows/ci-cd.yml). On every push to `main`:
+1. **CI**: Lints and formats the codebase using `ruff`, and runs tests with `pytest`.
+2. **CD**: Connects to the Droplet via SSH, pulls the latest code from GitHub, rebuilds the Docker container, and cleans up old images.
+
+### Step 1: Configure Repository Secrets on GitHub
+Go to your repository on GitHub, navigate to **Settings** -> **Secrets and variables** -> **Actions** -> **New repository secret**, and add:
+- `SSH_HOST`: The IP address of your DigitalOcean Droplet.
+- `SSH_USER`: The SSH username (usually `root`).
+- `SSH_KEY`: The **private SSH key** corresponding to a public key authorized on the Droplet (the contents of your local `~/.ssh/id_rsa` or `~/.ssh/id_ed25519`).
+- `SSH_PORT` *(Optional)*: Set this if your Droplet's SSH port is not the default `22`.
+
+### Step 2: Authorize the Droplet to Pull from GitHub
+Since your repository may be private, the Droplet needs authorization to run `git pull`.
+
+#### Option A: Using SSH Deploy Keys (Recommended & Secure)
+1. **Generate a new SSH key** on your Droplet:
+   ```bash
+   ssh-keygen -t ed25519 -C "expensegram-droplet-deploy"
+   ```
+   *(Press enter to save to the default path and skip passphrase)*
+2. **Copy the public key**:
+   ```bash
+   cat ~/.ssh/id_ed25519.pub
+   ```
+3. **Add it to GitHub**:
+   Go to your repository -> **Settings** -> **Deploy keys** -> **Add deploy key**. Paste the public key and check **Allow write access** if needed (not required for read-only pull).
+4. **Update the Git Remote URL** on your Droplet to use SSH:
+   ```bash
+   cd ~/expensegram
+   git remote set-url origin git@github.com:stefanobspn/ExpenseGram.git
+   ```
+
+#### Option B: Using a Personal Access Token (PAT)
+1. **Generate a PAT** on GitHub with `read` permissions for the repository.
+2. **Update the Git Remote URL** on your Droplet to include the token:
+   ```bash
+   cd ~/expensegram
+   git remote set-url origin https://YOUR_PAT_TOKEN@github.com/stefanobspn/ExpenseGram.git
+   ```
+

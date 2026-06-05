@@ -8,6 +8,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 def main() -> None:
     """Boot the bot using the application factory."""
     try:
@@ -16,6 +17,7 @@ def main() -> None:
         app.run_polling()
     except Exception as e:
         logger.critical(f"Failed to start the bot: {e}", exc_info=True)
+
 
 if __name__ == "__main__":
     main()
