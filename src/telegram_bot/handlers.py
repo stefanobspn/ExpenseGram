@@ -79,7 +79,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "• `/delete <id>` - Delete transaction by ID\n"
         "• `/undo` - Undo the very last transaction\n"
         "• `/export` - Download all data as CSV\n"
-        "• `/help` - Show this guide"
+        "• `/help` - Show this guide\n\n"
+        f"🤖 **Version:** `{Config.VERSION}`"
     )
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
