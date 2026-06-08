@@ -10,7 +10,9 @@ load_dotenv()
 
 def _get_version() -> str:
     try:
-        pyproject_path = Path(__file__).resolve().parent.parent.parent / "pyproject.toml"
+        pyproject_path = (
+            Path(__file__).resolve().parent.parent.parent / "pyproject.toml"
+        )
         if pyproject_path.exists():
             with open(pyproject_path, "rb") as f:
                 data = tomllib.load(f)
@@ -25,7 +27,6 @@ class Config:
     TELEGRAM_OWNER_ID: str = os.getenv("TELEGRAM_OWNER_ID", "")
     DB_PATH: str = os.getenv("DB_PATH", "expenses.db")
     VERSION: str = _get_version()
-
 
     @classmethod
     def validate(cls) -> None:
