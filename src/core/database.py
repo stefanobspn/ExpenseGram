@@ -30,13 +30,49 @@ class ExpenseDB:
     def init_db(self) -> None:
         """Initialize database tables if they do not exist."""
         with self._get_conn() as conn:
-            # Create categories table (starts empty)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS categories (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT UNIQUE NOT NULL
-                );
-            """)
+            # Create/migrate categories table
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='categories'"
+            )
+            table_exists = cursor.fetchone() is not None
+
+            if table_exists:
+                cursor = conn.execute("PRAGMA table_info(categories)")
+                columns = [row["name"] for row in cursor.fetchall()]
+                if "type" not in columns:
+                    conn.execute("ALTER TABLE categories RENAME TO categories_old;")
+                    conn.execute("""
+                        CREATE TABLE categories (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name TEXT NOT NULL,
+                            type TEXT NOT NULL DEFAULT 'expense',
+                            UNIQUE (name, type)
+                        );
+                    """)
+                    conn.execute("""
+                        INSERT INTO categories (id, name, type)
+                        SELECT id, name, 'expense' FROM categories_old;
+                    """)
+                    conn.execute("DROP TABLE categories_old;")
+
+                    # Update category type based on existing transactions:
+                    conn.execute("""
+                        UPDATE categories SET type = 'income'
+                        WHERE name IN (
+                            SELECT category FROM transactions WHERE type = 'income'
+                            EXCEPT
+                            SELECT category FROM transactions WHERE type = 'expense'
+                        );
+                    """)
+            else:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS categories (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        type TEXT NOT NULL DEFAULT 'expense',
+                        UNIQUE (name, type)
+                    );
+                """)
 
             # Create accounts table (starts empty)
             conn.execute("""
@@ -76,45 +112,72 @@ class ExpenseDB:
             conn.commit()
 
     # Category operations
-    def get_categories(self) -> List[str]:
-        """Get all categories sorted alphabetically."""
+    def get_categories(self, tx_type: Optional[str] = None) -> List[str]:
+        """Get all categories sorted alphabetically, optionally filtered by type."""
         with self._get_conn() as conn:
-            cursor = conn.execute("SELECT name FROM categories ORDER BY name ASC")
+            if tx_type:
+                cursor = conn.execute(
+                    "SELECT name FROM categories WHERE type = ? ORDER BY name ASC",
+                    (tx_type,),
+                )
+            else:
+                cursor = conn.execute(
+                    "SELECT DISTINCT name FROM categories ORDER BY name ASC"
+                )
             return [row["name"] for row in cursor.fetchall()]
 
-    def add_category(self, name: str) -> bool:
+    def get_categories_by_type(self) -> Dict[str, List[str]]:
+        """Get all categories grouped by their type."""
+        categories = {"income": [], "expense": []}
+        with self._get_conn() as conn:
+            cursor = conn.execute("SELECT name, type FROM categories ORDER BY name ASC")
+            for row in cursor.fetchall():
+                t = row["type"]
+                if t in categories:
+                    categories[t].append(row["name"])
+        return categories
+
+    def add_category(self, name: str, cat_type: str = "expense") -> bool:
         """Add a new category. Returns True if successful, False if already exists."""
         name = name.strip().lower()
-        if not name:
+        cat_type = cat_type.strip().lower()
+        if not name or cat_type not in ("expense", "income"):
             return False
         try:
             with self._get_conn() as conn:
-                conn.execute("INSERT INTO categories (name) VALUES (?)", (name,))
+                conn.execute(
+                    "INSERT INTO categories (name, type) VALUES (?, ?)",
+                    (name, cat_type),
+                )
                 conn.commit()
             return True
         except sqlite3.IntegrityError:
             return False
 
-    def delete_category(self, name: str) -> Tuple[bool, str]:
+    def delete_category(self, name: str, cat_type: str = "expense") -> Tuple[bool, str]:
         """Delete an unused category. Returns (success, message)."""
         name = name.strip().lower()
+        cat_type = cat_type.strip().lower()
         with self._get_conn() as conn:
             cursor = conn.execute(
-                "SELECT COUNT(*) as count FROM transactions WHERE category = ?", (name,)
+                "SELECT COUNT(*) as count FROM transactions WHERE category = ? AND type = ?",
+                (name, cat_type),
             )
             count = cursor.fetchone()["count"]
             if count > 0:
                 return (
                     False,
-                    f"Category '{name}' is in use by {count} transaction(s) and cannot be deleted.",
+                    f"Category '{name}' ({cat_type}) is in use by {count} transaction(s) and cannot be deleted.",
                 )
 
-            cursor = conn.execute("DELETE FROM categories WHERE name = ?", (name,))
+            cursor = conn.execute(
+                "DELETE FROM categories WHERE name = ? AND type = ?", (name, cat_type)
+            )
             conn.commit()
             if cursor.rowcount > 0:
-                return True, f"Category '{name}' deleted successfully."
+                return True, f"Category '{name}' ({cat_type}) deleted successfully."
             else:
-                return False, f"Category '{name}' not found."
+                return False, f"Category '{name}' ({cat_type}) not found."
 
     # Account operations
     def get_accounts(self) -> List[str]:
@@ -214,14 +277,30 @@ class ExpenseDB:
                     f"Account '{account}' does not exist. You must create it first."
                 )
 
-            # Validate category existence
-            cursor = conn.execute(
-                "SELECT 1 FROM categories WHERE name = ?", (category,)
-            )
-            if not cursor.fetchone():
-                raise CategoryNotFoundError(
-                    f"Category '{category}' does not exist. You must create it first."
+            # Validate category existence and type
+            if tx_type in ("income", "expense"):
+                cursor = conn.execute(
+                    "SELECT type FROM categories WHERE name = ?", (category,)
                 )
+                rows = cursor.fetchall()
+                if not rows:
+                    raise CategoryNotFoundError(
+                        f"Category '{category}' does not exist. You must create it first."
+                    )
+                types = [r["type"] for r in rows]
+                if tx_type not in types:
+                    raise CategoryNotFoundError(
+                        f"Category '{category}' is not registered as an '{tx_type}' category (it is registered as '{types[0]}')."
+                    )
+            else:
+                # Fallback/validation for other transaction types (e.g. transfers)
+                cursor = conn.execute(
+                    "SELECT 1 FROM categories WHERE name = ?", (category,)
+                )
+                if not cursor.fetchone():
+                    raise CategoryNotFoundError(
+                        f"Category '{category}' does not exist. You must create it first."
+                    )
 
             cursor = conn.execute(
                 """

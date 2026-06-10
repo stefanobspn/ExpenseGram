@@ -72,8 +72,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "• `/delaccount <name>` - Delete account (only if unused)\n"
         "• `/transfer <from> <to> <amount> [desc]` - Transfer balance between accounts\n"
         "• `/categories` - List categories\n"
-        "• `/addcategory <name>` - Add category\n"
-        "• `/delcategory <name>` - Delete category (only if unused)\n"
+        "• `/addcategory <type> <name>` - Add category (type: `expense` or `income`)\n"
+        "• `/delcategory <type> <name>` - Delete category (only if unused)\n"
         "• `/report [month]` - Summary (e.g. `/report`, `/report 05`, or `/report 2026-05`)\n"
         "• `/history [limit]` - Recent transactions (default: 10)\n"
         "• `/delete <id>` - Delete transaction by ID\n"
@@ -88,36 +88,62 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 @owner_required
 async def list_categories(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """List all categories alphabetically."""
+    """List all categories separated by income and expense."""
     db = get_db(context)
-    cats = db.get_categories()
-    if not cats:
+    cats_by_type = db.get_categories_by_type()
+
+    income_cats = cats_by_type.get("income", [])
+    expense_cats = cats_by_type.get("expense", [])
+
+    if not income_cats and not expense_cats:
         await update.message.reply_text("🗂️ No categories found.")
         return
 
-    msg = "🗂️ **Available Categories:**\n" + "\n".join(f"• {c}" for c in cats)
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    msg_lines = ["🗂️ **Available Categories:**\n"]
+
+    if income_cats:
+        msg_lines.append("🟢 **Income:**")
+        msg_lines.extend(f"• {c}" for c in income_cats)
+        msg_lines.append("")
+
+    if expense_cats:
+        msg_lines.append("🔻 **Expenses:**")
+        msg_lines.extend(f"• {c}" for c in expense_cats)
+
+    await update.message.reply_text("\n".join(msg_lines).strip(), parse_mode="Markdown")
 
 
 @owner_required
 async def add_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Manually add a new category."""
-    if not context.args:
+    if not context.args or len(context.args) < 2:
         await update.message.reply_text(
-            "Usage: `/addcategory <category_name>`", parse_mode="Markdown"
+            "Usage: `/addcategory <expense|income> <category_name>`",
+            parse_mode="Markdown",
         )
         return
 
-    cat_name = " ".join(context.args).strip()
+    cat_type = context.args[0].strip().lower()
+    cat_name = " ".join(context.args[1:]).strip()
+
+    if cat_type not in ("expense", "income"):
+        await update.message.reply_text(
+            "❌ **Invalid type.** First argument must be `expense` or `income`.\n\n"
+            "Usage: `/addcategory <expense|income> <category_name>`",
+            parse_mode="Markdown",
+        )
+        return
+
     db = get_db(context)
-    success = db.add_category(cat_name)
+    success = db.add_category(cat_name, cat_type)
     if success:
         await update.message.reply_text(
-            f"✅ Category `{cat_name.lower()}` added.", parse_mode="Markdown"
+            f"✅ Category `{cat_name.lower()}` ({cat_type}) added.",
+            parse_mode="Markdown",
         )
     else:
         await update.message.reply_text(
-            f"⚠️ Category `{cat_name.lower()}` already exists or is invalid.",
+            f"⚠️ Category `{cat_name.lower()}` ({cat_type}) already exists or is invalid.",
             parse_mode="Markdown",
         )
 
@@ -125,15 +151,26 @@ async def add_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 @owner_required
 async def del_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Manually delete an unused category."""
-    if not context.args:
+    if not context.args or len(context.args) < 2:
         await update.message.reply_text(
-            "Usage: `/delcategory <category_name>`", parse_mode="Markdown"
+            "Usage: `/delcategory <expense|income> <category_name>`",
+            parse_mode="Markdown",
         )
         return
 
-    cat_name = " ".join(context.args).strip()
+    cat_type = context.args[0].strip().lower()
+    cat_name = " ".join(context.args[1:]).strip()
+
+    if cat_type not in ("expense", "income"):
+        await update.message.reply_text(
+            "❌ **Invalid type.** First argument must be `expense` or `income`.\n\n"
+            "Usage: `/delcategory <expense|income> <category_name>`",
+            parse_mode="Markdown",
+        )
+        return
+
     db = get_db(context)
-    success, message = db.delete_category(cat_name)
+    success, message = db.delete_category(cat_name, cat_type)
     if success:
         await update.message.reply_text(f"✅ {message}")
     else:

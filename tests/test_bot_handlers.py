@@ -134,3 +134,62 @@ async def test_nuke_command_cleared_by_other_command(temp_db):
     await handlers.history_command(history_update, history_context)
     assert history_context.user_data.get("nuke_pending") is False
     assert len(temp_db.get_history()) == 1
+
+
+@pytest.mark.anyio
+@patch("src.core.config.Config.TELEGRAM_OWNER_ID", "123456")
+async def test_category_command_handlers(temp_db):
+    # Test list categories empty
+    update, context = make_mock_update_and_context(temp_db, "/categories")
+    # Clean database first by removing defaults
+    temp_db.delete_category("food", "expense")
+    await handlers.list_categories(update, context)
+    update.message.reply_text.assert_called_once_with("🗂️ No categories found.")
+
+    # Test add category usage
+    update, context = make_mock_update_and_context(temp_db, "/addcategory")
+    await handlers.add_category(update, context)
+    assert "Usage: `/addcategory" in update.message.reply_text.call_args[0][0]
+
+    # Test add category invalid type
+    update, context = make_mock_update_and_context(temp_db, "/addcategory invalid food")
+    context.args = ["invalid", "food"]
+    await handlers.add_category(update, context)
+    assert "Invalid type" in update.message.reply_text.call_args[0][0]
+
+    # Test add category success (expense)
+    update, context = make_mock_update_and_context(temp_db, "/addcategory expense food")
+    context.args = ["expense", "food"]
+    await handlers.add_category(update, context)
+    assert "added" in update.message.reply_text.call_args[0][0]
+    assert "food" in temp_db.get_categories("expense")
+
+    # Test add category success (income)
+    update, context = make_mock_update_and_context(
+        temp_db, "/addcategory income salary"
+    )
+    context.args = ["income", "salary"]
+    await handlers.add_category(update, context)
+    assert "added" in update.message.reply_text.call_args[0][0]
+    assert "salary" in temp_db.get_categories("income")
+
+    # Test list categories
+    update, context = make_mock_update_and_context(temp_db, "/categories")
+    await handlers.list_categories(update, context)
+    reply = update.message.reply_text.call_args[0][0]
+    assert "Income" in reply
+    assert "Expenses" in reply
+    assert "salary" in reply
+    assert "food" in reply
+
+    # Test del category usage
+    update, context = make_mock_update_and_context(temp_db, "/delcategory")
+    await handlers.del_category(update, context)
+    assert "Usage: `/delcategory" in update.message.reply_text.call_args[0][0]
+
+    # Test del category success
+    update, context = make_mock_update_and_context(temp_db, "/delcategory expense food")
+    context.args = ["expense", "food"]
+    await handlers.del_category(update, context)
+    assert "deleted successfully" in update.message.reply_text.call_args[0][0]
+    assert "food" not in temp_db.get_categories("expense")

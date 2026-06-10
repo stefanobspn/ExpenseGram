@@ -75,7 +75,7 @@ def test_database_undo():
         db.add_account("cash")
         db.add_account("bank")
         db.add_category("food")
-        db.add_category("salary")
+        db.add_category("salary", "income")
 
         # Add a couple of transactions (amount, type, account, category, description)
         tx1_id = db.add_transaction(100.0, "expense", "cash", "food", "lunch")
@@ -120,7 +120,7 @@ def test_database_balances_and_transfers():
         db.add_account("cash")
         db.add_account("bank")
         db.add_category("food")
-        db.add_category("salary")
+        db.add_category("salary", "income")
 
         # Add initial transactions
         db.add_transaction(1000.0, "income", "bank", "salary", "initial deposit")
@@ -175,6 +175,57 @@ def test_database_delete_all_transactions():
         count = db.delete_all_transactions()
         assert count == 2
         assert len(db.get_history()) == 0
+    finally:
+        if os.path.exists(db_path):
+            os.remove(db_path)
+
+
+def test_database_category_types():
+    db_path = "test_temp_cat_types.db"
+    if os.path.exists(db_path):
+        os.remove(db_path)
+
+    try:
+        db = ExpenseDB(db_path)
+        db.add_account("cash")
+
+        # Add categories of different types
+        assert db.add_category("food", "expense") is True
+        assert db.add_category("salary", "income") is True
+
+        # Test get_categories_by_type
+        cats_by_type = db.get_categories_by_type()
+        assert "food" in cats_by_type["expense"]
+        assert "salary" in cats_by_type["income"]
+
+        # Test get_categories with filter
+        assert db.get_categories("expense") == ["food"]
+        assert db.get_categories("income") == ["salary"]
+
+        # Try adding transaction with matching type
+        tx_id1 = db.add_transaction(100.0, "expense", "cash", "food", "lunch")
+        assert tx_id1 > 0
+
+        tx_id2 = db.add_transaction(1000.0, "income", "cash", "salary", "bonus")
+        assert tx_id2 > 0
+
+        # Try adding transaction with mismatching type
+        with pytest.raises(CategoryNotFoundError):
+            db.add_transaction(50.0, "income", "cash", "food", "extra income")
+
+        with pytest.raises(CategoryNotFoundError):
+            db.add_transaction(50.0, "expense", "cash", "salary", "extra expense")
+
+        # Test deleting in-use category fails
+        success, msg = db.delete_category("food", "expense")
+        assert not success
+        assert "in use" in msg
+
+        # Delete unused category
+        db.add_category("unused", "expense")
+        success, msg = db.delete_category("unused", "expense")
+        assert success
+        assert "deleted successfully" in msg
     finally:
         if os.path.exists(db_path):
             os.remove(db_path)
