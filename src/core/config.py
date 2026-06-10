@@ -10,7 +10,9 @@ load_dotenv()
 
 def _get_version() -> str:
     try:
-        pyproject_path = Path(__file__).resolve().parent.parent.parent / "pyproject.toml"
+        pyproject_path = (
+            Path(__file__).resolve().parent.parent.parent / "pyproject.toml"
+        )
         if pyproject_path.exists():
             with open(pyproject_path, "rb") as f:
                 data = tomllib.load(f)
