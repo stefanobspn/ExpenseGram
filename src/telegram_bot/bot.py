@@ -44,6 +44,7 @@ def create_app() -> Application:
     app.add_handler(CommandHandler("delete", handlers.delete_command))
     app.add_handler(CommandHandler("undo", handlers.undo_command))
     app.add_handler(CommandHandler("export", handlers.export_command))
+    app.add_handler(CommandHandler("nuke", handlers.nuke_command))
 
     # Fallback to handle unregistered slash commands
     app.add_handler(MessageHandler(filters.COMMAND, handlers.handle_unknown_command))

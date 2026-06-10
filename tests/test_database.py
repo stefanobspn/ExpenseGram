@@ -152,3 +152,29 @@ def test_database_balances_and_transfers():
     finally:
         if os.path.exists(db_path):
             os.remove(db_path)
+
+
+def test_database_delete_all_transactions():
+    db_path = "test_temp_nuke.db"
+    if os.path.exists(db_path):
+        os.remove(db_path)
+
+    try:
+        db = ExpenseDB(db_path)
+        db.add_account("cash")
+        db.add_category("food")
+
+        # Check delete empty
+        assert db.delete_all_transactions() == 0
+
+        # Add transactions
+        db.add_transaction(100.0, "expense", "cash", "food", "lunch")
+        db.add_transaction(200.0, "expense", "cash", "food", "dinner")
+
+        # Nuke
+        count = db.delete_all_transactions()
+        assert count == 2
+        assert len(db.get_history()) == 0
+    finally:
+        if os.path.exists(db_path):
+            os.remove(db_path)

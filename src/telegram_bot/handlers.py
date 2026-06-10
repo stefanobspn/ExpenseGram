@@ -79,6 +79,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "• `/delete <id>` - Delete transaction by ID\n"
         "• `/undo` - Undo the very last transaction\n"
         "• `/export` - Download all data as CSV\n"
+        "• `/nuke` - Drop all transactions (requires confirmation)\n"
         "• `/help` - Show this guide\n\n"
         f"🤖 **Version:** `{Config.VERSION}`"
     )
@@ -485,10 +486,50 @@ async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 @owner_required
+async def nuke_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Initiate database transactions nuke process."""
+    db = get_db(context)
+    txs = db.get_history(1)
+    if not txs:
+        await update.message.reply_text(
+            "📭 **No transactions found.** The database is already clean.",
+            parse_mode="Markdown",
+        )
+        return
+
+    context.user_data["nuke_pending"] = True
+    await update.message.reply_text(
+        "⚠️ **WARNING: Permanent Data Loss!**\n\n"
+        "This command will **DELETE ALL TRANSACTIONS** in the database. "
+        "This action cannot be undone.\n\n"
+        "If you are absolutely sure and want to proceed, type **exactly** `I understand`.",
+        parse_mode="Markdown",
+    )
+
+
+@owner_required
 async def handle_transaction_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Parse text message as shorthand transaction and record it."""
+    if context.user_data and context.user_data.get("nuke_pending"):
+        text = update.message.text.strip()
+        if text == "I understand":
+            context.user_data["nuke_pending"] = False
+            db = get_db(context)
+            count = db.delete_all_transactions()
+            await update.message.reply_text(
+                f"💥 **Nuke Successful!**\n\nDropped all {count} transactions from the database.",
+                parse_mode="Markdown",
+            )
+        else:
+            context.user_data["nuke_pending"] = False
+            await update.message.reply_text(
+                "❌ **Nuke Cancelled.** Confirmation mismatch. Returning to normal mode.",
+                parse_mode="Markdown",
+            )
+        return
+
     text = update.message.text
     res = parse_transaction(text)
 

@@ -425,3 +425,11 @@ class ExpenseDB:
                 """
             )
             return [dict(row) for row in cursor.fetchall()]
+
+    def delete_all_transactions(self) -> int:
+        """Delete all transactions from the database. Returns the number of deleted rows."""
+        with self._get_conn() as conn:
+            cursor = conn.execute("DELETE FROM transactions")
+            count = cursor.rowcount
+            conn.commit()
+            return count

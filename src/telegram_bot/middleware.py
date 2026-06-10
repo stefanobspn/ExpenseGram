@@ -42,6 +42,13 @@ def owner_required(func):
             )
             return
 
+        # Clear nuke pending state if running any command other than nuke_command or handle_transaction_message
+        if context.user_data is not None and func.__name__ not in (
+            "nuke_command",
+            "handle_transaction_message",
+        ):
+            context.user_data["nuke_pending"] = False
+
         return await func(update, context)
 
     return wrapper
