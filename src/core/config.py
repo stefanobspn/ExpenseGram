@@ -26,7 +26,6 @@ class Config:
     DB_PATH: str = os.getenv("DB_PATH", "expenses.db")
     VERSION: str = _get_version()
 
-
     @classmethod
     def validate(cls) -> None:
         """Validate critical configuration parameters."""

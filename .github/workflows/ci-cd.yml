@@ -48,7 +48,7 @@ jobs:
           port: ${{ secrets.SSH_PORT || '22' }}
           script: |
             echo "Deploying latest changes to Droplet..."
-            cd ~/expensegram
+            cd ~/ExpenseGram
             
             # Fetch latest changes
             git pull origin main
