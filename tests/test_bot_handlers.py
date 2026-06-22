@@ -193,3 +193,32 @@ async def test_category_command_handlers(temp_db):
     await handlers.del_category(update, context)
     assert "deleted successfully" in update.message.reply_text.call_args[0][0]
     assert "food" not in temp_db.get_categories("expense")
+
+
+@pytest.mark.anyio
+@patch("src.core.config.Config.TELEGRAM_OWNER_ID", "123456")
+async def test_report_command_with_transfer(temp_db):
+    # Add another account
+    temp_db.add_account("bank")
+    # Add an income category
+    temp_db.add_category("salary", "income")
+
+    # Add income transaction
+    temp_db.add_transaction(1000000.0, "income", "bank", "salary")
+
+    # Add expense transaction
+    temp_db.add_transaction(200000.0, "expense", "cash", "food")
+
+    # Add transfer transaction (cash -> bank)
+    temp_db.add_transfer("cash", "bank", 100000.0, "transfer deposit")
+
+    update, context = make_mock_update_and_context(temp_db, "/report")
+    await handlers.report_command(update, context)
+
+    update.message.reply_text.assert_called_once()
+    reply = update.message.reply_text.call_args[0][0]
+
+    assert "**Total Income:** `1,000,000.00`" in reply
+    assert "**Total Expenses:** `200,000.00`" in reply
+    assert "Net Savings:** `+800,000.00`" in reply
+    assert "transfer" not in reply.lower()

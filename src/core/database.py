@@ -485,7 +485,7 @@ class ExpenseDB:
                 """
                 SELECT category, type, SUM(amount) as total
                 FROM transactions
-                WHERE created_at LIKE ?
+                WHERE created_at LIKE ? AND type IN ('income', 'expense')
                 GROUP BY category, type
                 ORDER BY type DESC, total DESC
                 """,

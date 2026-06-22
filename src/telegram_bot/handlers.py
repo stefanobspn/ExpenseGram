@@ -352,7 +352,7 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if t_type == "expense":
             expenses.append(f"• {cat}: `{total:,.2f}`")
             total_exp += total
-        else:
+        elif t_type == "income":
             income.append(f"• {cat}: `{total:,.2f}`")
             total_inc += total
 
