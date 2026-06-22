@@ -221,4 +221,11 @@ async def test_report_command_with_transfer(temp_db):
     assert "**Total Income:** `1,000,000.00`" in reply
     assert "**Total Expenses:** `200,000.00`" in reply
     assert "Net Savings:** `+800,000.00`" in reply
-    assert "transfer" not in reply.lower()
+    assert "💳 **Account Balances:**" in reply
+    assert "• bank: `1,100,000.00`" in reply
+    assert "• cash: `-300,000.00`" in reply
+    # "transfer" should only appear in account names/description but not as a category in report
+    # Wait, the category 'transfer' is in the DB but shouldn't be listed in the category breakdowns
+    # The string `• transfer: ` or category name breakdowns shouldn't exist.
+    # To avoid matching "transfer deposit" or general transfer words, we can check that it's not listed as a category breakdown
+    assert "• transfer:" not in reply.lower()

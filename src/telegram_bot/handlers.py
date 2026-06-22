@@ -374,6 +374,13 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     sign_char = "+" if net >= 0 else ""
     report_lines.append(f"💵 **Net Savings:** `{sign_char}{net:,.2f}`")
 
+    balances = db.get_account_balances()
+    if balances:
+        report_lines.append("\n💳 **Account Balances:**")
+        for acc in sorted(balances.keys()):
+            bal = balances[acc]
+            report_lines.append(f"• {acc}: `{bal:,.2f}`")
+
     await update.message.reply_text("\n".join(report_lines), parse_mode="Markdown")
 
 
